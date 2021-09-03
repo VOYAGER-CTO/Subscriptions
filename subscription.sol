@@ -5,37 +5,42 @@ import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 
 contract Payment {
   mapping(address => bool) private admins;
+  mapping(string => address) private tokens;
+  string[] private tokenArray;
   address[] private adminsList;
-  address private tokenAddress;
   uint private minMultiplier = 12;
   
-  function constuctor () public {
+  constuctor () public {
     adminsList.push(msg.sender);
     admins[msg.sender] = true;
+    setTokenAddress(VOYRME, 0x33a887Cf76383be39DC51786e8f641c9D6665D84);
   }
 
+  // adminOnly modifier requiring msg.sender to be in the admins list
   modifier adminOnly{
     require(admins[msg.sender], "Admin only access");
     _;
   }
+
+  // add an admin to the list
   function addAdmin(address admin) external adminOnly {
     adminsList.push(admin);
     admins[admin] = true;
   }
 
-  function addMultipleAdmin(address[] admins) external adminOnly {
-    for (uint i=0; i < admins.length; i++){
-      adminsList.push(i);
-      admins[i] = true;
-    }
-  }
-
-  function removeAdmin(address admin) external adminOnly {
+  // disable admin
+  function disableAdmin(address admin) external adminOnly {
     admins[admin] = false;
   }
 
-  function setTokenAddress(address _address) external adminOnly {
-    tokenAddress = _address;
+  // set tokenAddress
+  function setTokenAddress(string name, address _address) external adminOnly {
+    tokens[name] = _address;
+    tokensArray.push(name);
+  }
+
+  function getTokenList() view external adminOnly {
+    return(tokenArray)
   }
   
   // This contract is meant to facilitate subscriptions
@@ -72,7 +77,7 @@ contract Payment {
   function setMinMultiplier(uint _minMultiplier) external adminOnly {
     minMultiplier = _minMultiplier;
   }
-  
+
   function getPlanSubscriptions(planId) external view adminOnly returns(uint[] subscriptions){
     return planSubscriptions[planId];
   }
@@ -136,9 +141,9 @@ contract Payment {
     plans[planId].isActive = false;
   }
 
-  function subscribe(uint planId, uint subscriptionId) external {
+  function subscribe(uint planId, uint subscriptionId, string tokenName) external {
     Plan storage plan = plans[planId];
-    IERC20 token = IERC20(tokenAddress);
+    IERC20 token = IERC20(tokens[tokenName]);
     require(!plan.isActive, 'this plan is not active');
     require(token.allowance(msg.sender,address(this)) > (plan.amount * minMultiplier), "pre-approval required");  // UI needs to pre-approve for multiple months
     require(token.balanceOf(msg.sender) > plan.amount, "insufficient balance");
@@ -155,23 +160,26 @@ contract Payment {
     token.transfer(plan.receiverAddress, plan.amount);
   }
 
+  // Cancel a  subscription
+  // This can be done by the subscriber OR an admin
   function cancelSubscription(uint planId) external {
     Subscription storage subscription = subscriptions[msg.sender][planId];
-    if(!admin[msg.sender]){
-      require(subscription.fan = msg.sender, 'you are not the subscriber');
-    }
+    require(subscription.fan = msg.sender || admins[msg.sender], 'you are not the subscriber or an admin');
     require(subscription.fan != address(0), 'this subscription does not exist');
     subscriptions[msg.sender][planId].status = false;
   }
 
-// I want to be able to have a function that will iterate through a list of subscriptions to charge for
-// ah ha - take in a list of planIs and loop through that list, this way you can keep track of which plans you're submitting
-// and if there are too many plans to process we can back off and eventually find how many we can process in a single transaction
+  // This function is to take in a list of planIds that will need to be processed
+  // If you know of a better way to store potentially millions of entries by time and just trigger a function without having to...
+  // ... send a list and also be careful not to run out of gas, hence why I went with sending a list and iterating over that, then...
+  // ... I can make the list any size I want and call it multiple times. Depending on the number of planIds I can send through here...
+  // ... it may take a while, I may end up having to process thousands a day, hopefuly this will handle enough without running out of gas
 
-  function paySubscriptions(uint[] planIds) external returns(uint[] memory successSubscriptionIDs,
+  // Any gas optimization on here would be welcome as I would like to include as many as possible in a single transaction
+  function paySubscriptions(uint[] planIds, string tokenName) external returns(uint[] memory successSubscriptionIDs,
                                                              uint[] memory failedSubscriptionIDs, 
                                                              string[] memory failedSubscriptionReasons){
-    IERC20 token = IERC20(tokenAddress);
+    IERC20 token = IERC20(tokens[tokenName]);
     uint[] memory successSubscriptionIDs;
     uint[] memory failedSubscriptionIDs;
     string[] memory failedSubscriptionReasons;
