@@ -39,7 +39,7 @@ contract Payment {
     tokensArray.push(name);
   }
 
-  function getTokenList() view external adminOnly {
+  function getTokenList() view external {
     return(tokenArray)
   }
   
@@ -70,7 +70,7 @@ contract Payment {
   mapping(address => mapping(uint => Subscription)) public subscriptions;
   mapping(uint => uint[]) private planSubscriptions;  // planId => subscriptions
 
-  function getMinMultiplier() external view adminOnly returns(uint minMultiplier){
+  function getMinMultiplier() external view returns(uint minMultiplier){
     return(minMultiplier);
   }
 
@@ -78,48 +78,48 @@ contract Payment {
     minMultiplier = _minMultiplier;
   }
 
-  function getPlanSubscriptions(planId) external view adminOnly returns(uint[] subscriptions){
+  function getPlanSubscriptions(planId) external view returns(uint[] subscriptions){
     return planSubscriptions[planId];
   }
 
-  function getPlanDetails(planId) external view adminOnly returns(string[] plan){
+  function getPlanDetails(planId) external view returns(string[] plan){
     return(plans[planId]);
   }
 
-  function getSubscriptionDetails(subscriptionId) external view adminOnly returns(string[] subscription){
+  function getSubscriptionDetails(subscriptionId) external view returns(string[] subscription){
     return(subscriptions(subscriptionId));
   }
 
-  function getSubscriptionAmount(subscriptionId) external view adminOnly returns (uint amount){
+  function getSubscriptionAmount(subscriptionId) external view returns (uint amount){
     return(plans[subscriptions[subscriptionId].planID].amount);
   }
 
-  function getSubscriptionNextPayment(subscriptionId) external view adminOnly returns (uint nextPayment){
+  function getSubscriptionNextPayment(subscriptionId) external view returns (uint nextPayment){
     return(subscriptions[subscriptionId].nextPayment);
   }
 
-  function getSubscriptionStartTime(subscriptionId) external view adminOnly returns (uint startTime){
+  function getSubscriptionStartTime(subscriptionId) external view returns (uint startTime){
     return(subscriptions[subscriptionId].startTime);
   }
 
-  function isSubscriptionActive(subscriptionId) external view adminOnly returns(bool isActive) {
+  function isSubscriptionActive(subscriptionId) external view returns(bool isActive) {
     return(subscriptions[subscriptionId].startTime);
   }
 
-  function subscriptionFanAddress(subscriptionId) external view adminOnly returns(address fanAddress){
+  function subscriptionFanAddress(subscriptionId) external view returns(address fanAddress){
     return(subscriptions[subscriptionId].fanAddress);
   }
 
-  function subscriptionPlanID(subscriptionId) external view adminOnly returns(uint planID){
+  function subscriptionPlanID(subscriptionId) external view returns(uint planID){
     return(subscriptions[subscriptionId].planID);
   }
 
-  function setMinFrequency(uint _minFrequency) external adminOnly {
+  function setMinFrequency(uint _minFrequency) external {
     require(_minFrequency > 0, 'frequency needs to be > 0');
     minFrequency = _minFrequency;
   }
 
-  function getMinFrequency() external pure adminOnly returns(uint){
+  function getMinFrequency() external view returns(uint){
     return minFrequency;
   }
 
