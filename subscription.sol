@@ -1,5 +1,5 @@
 pragma solidity ^0.8.6;
-
+// SPDX-License-Identifier: None
 
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 
@@ -8,6 +8,11 @@ contract Payment {
   address[] private adminsList;
   address private tokenAddress;
   
+  function constuctor () public {
+    adminsList.push(msg.sender);
+    admins[msg.sender] = true;
+  }
+
   modifier adminOnly{
     require(admins[msg.sender], "Admin only access");
     _;
@@ -15,16 +20,6 @@ contract Payment {
   function addAdmin(address admin) external adminOnly {
     adminsList.push(admin);
     admins[admin] = true;
-  }
-
-  function remove(uint index)  returns(uint[]) {
-    require(index < adminsList.length, 'index out of range');
-    for (uint i = index; i<adminsList.length-1; i++){
-        adminsList[i] = adminsList[i+1];
-    }
-    delete adminsList[adminsList.length-1];
-    adminsList.length--;
-    return adminsList;
   }
 
   function addMultipleAdmin(address[] admins) external adminOnly {
@@ -47,44 +42,80 @@ contract Payment {
   // This contract REQUIRES that the subscriber pre-approve the allowed amount prior to creating the subscription
 
   struct Plan {
-    address receiver;
+    address receiverAddress;
+    uint planID;
     uint creatorID;
     uint amount;
     uint frequency;
-    bool status;
+    bool isActive;
   }
   struct Subscription {
-    address fan;
-    uint start;
+    address fanAddress;
+    uint planID;
+    uint subscriptionID;
+    uint startTime;
     uint nextPayment;
-    bool status;
+    bool isActive;
   }
 
   uint private minFrequency = 86400;
 
   mapping(uint => Plan) public plans;
   mapping(address => mapping(uint => Subscription)) public subscriptions;
+  mapping(uint => uint[]) private planSubscriptions;  // planId => subscriptions
 
-  event PlanCreated(address creator, uint planId, uint date);
-  event SubscriptionCreated(address fan, uint planId, uint date);
-  event SubscriptionCancelled(address fan, uint planId, uint date);
-  event PaymentSent(address from, address to, uint amount, uint planId, uint date);
+  function getPlanSubscriptions(planId) external view adminOnly returns(uint[] subscriptions){
+    return planSubscriptions[planId];
+  }
+
+  function getPlanDetails(planId) external view adminOnly returns(string[] plan){
+    return(plans[planId]);
+  }
+
+  function getSubscriptionDetails(subscriptionId) external view adminOnly returns(string[] subscription){
+    return(subscriptions(subscriptionId));
+  }
+
+  function getSubscriptionAmount(subscriptionId) external view adminOnly returns (uint amount){
+    return(plans[subscriptions[subscriptionId].planID].amount);
+  }
+
+  function getSubscriptionNextPayment(subscriptionId) external view adminOnly returns (uint nextPayment){
+    return(subscriptions[subscriptionId].nextPayment);
+  }
+
+  function getSubscriptionStartTime(subscriptionId) external view adminOnly returns (uint startTime){
+    return(subscriptions[subscriptionId].startTime);
+  }
+
+  function isSubscriptionActive(subscriptionId) external view adminOnly returns(bool isActive) {
+    return(subscriptions[subscriptionId].startTime);
+  }
+
+  function subscriptionFanAddress(subscriptionId) external view adminOnly returns(address fanAddress){
+    return(subscriptions[subscriptionId].fanAddress);
+  }
+
+  function subscriptionPlanID(subscriptionId) external view adminOnly returns(uint planID){
+    return(subscriptions[subscriptionId].planID);
+  }
 
   function setMinFrequency(uint _minFrequency) external adminOnly {
     require(_minFrequency > 0, 'frequency needs to be > 0');
     minFrequency = _minFrequency;
   }
 
-  function showMinFrequency() external pure adminOnly returns(uint){
+  function getMinFrequency() external pure adminOnly returns(uint){
     return minFrequency;
   }
 
-  function createPlan(address reciever, uint creatorID, uint amount, uint frequency, uint planID) external adminOnly {
+  function createPlan(address recieverAddress, uint planID, uint creatorID, uint amount, uint frequency) external adminOnly {
     require(amount > 0, 'amount needs to be > 0');
     require(frequency >= minFrequency, 'frequency needs to be greater than the minimum');
-    require(!plans[planID].status, 'plan already exists');
+    require(plans[planID].status == false, 'plan already exists');
     plans[planID] = Plan(
-      receiver,
+      receiverAddress,
+      planID,
       creatorID,
       amount, 
       frequency,
@@ -92,23 +123,27 @@ contract Payment {
     );
   }
 
-  function cancelPlan(uint plaId) external adminOnly {
-
+  function cancelPlan(uint planId) external adminOnly {
+    plans[planId].isActive = false;
   }
 
-  function subscribe(uint planId) external {
+  function subscribe(uint planId, uint subscriptionId) external {
     Plan storage plan = plans[planId];
     IERC20 token = IERC20(tokenAddress);
-    require(!plan.status, 'this plan does not exist');
-    require(token.allowance[msg.sender][plan.receiver] > (plan.amount * 12), "pre-approval required");  // UI needs to pre-approve for amount * 12
-    token.transferFrom(msg.sender, plan.receiver, plan.amount);
-
+    require(!plan.isActive, 'this plan is not active');
+    require(token.allowance(msg.sender,address(this)) > (plan.amount * 12), "pre-approval required");  // UI needs to pre-approve for amount * 12
+    require(token.balanceOf(msg.sender) > plan.amount, "insufficient balance");
     subscriptions[msg.sender][planId] = Subscription(
-      msg.sender, 
+      msg.sender,
+      planId,
+      subscriptionId,
       block.timestamp, 
       block.timestamp + plan.frequency,
       true
     );
+    planSubscriptions[planId].push(subscriptionId);
+    token.transferFrom(subscription.fanAddress, address(this), plan.amount);
+    token.transfer(plan.receiverAddress, plan.amount);
   }
 
   function cancelSubscription(uint planId) external {
@@ -120,14 +155,46 @@ contract Payment {
     subscriptions[msg.sender][planId].status = false;
   }
 
-  function pay(address fan, uint planId) external {
-    Subscription storage subscription = subscriptions[fan][planId];
-    IERC20 token = IERC20(tokenAddress);
-    Plan storage plan = plans[planId];
-    require(subscription.fan != address(0), 'this subscription does not exist');
-    require(block.timestamp > subscription.nextPayment, 'not due yet');
+// I want to be able to have a function that will iterate through a list of subscriptions to charge for
+// ah ha - take in a list of planIs and loop through that list, this way you can keep track of which plans you're submitting
+// and if there are too many plans to process we can back off and eventually find how many we can process in a single transaction
 
-    token.transferFrom(fan, plan.creator, plan.amount);  
-    subscription.nextPayment = subscription.nextPayment + plan.frequency;
+  function paySubscriptions(uint[] planIds) external returns(uint[] memory successSubscriptionIDs,
+                                                             uint[] memory failedSubscriptionIDs, 
+                                                             string[] memory failedSubscriptionReasons){
+    IERC20 token = IERC20(tokenAddress);
+    uint[] memory successSubscriptionIDs;
+    uint[] memory failedSubscriptionIDs;
+    string[] memory failedSubscriptionReasons;
+    for (uint256 i=0; i < planIds.length; i++) {
+      Subscription storage subscription = subscriptions[fan][planIds[i]];
+      Plan storage plan = plans[planIds[i]];
+      require(subscription.fan != address(0), 'this subscription does not exist');
+      if(token.balanceOf() > plan.amount 
+            || block.timestamp > subscription.nextPayment 
+            || token.allowance(msg.sender, address(this)) > plan.amount 
+            || subscription.isActive == false 
+            || plan.isActive == false) {
+        if(token.balanceOf() > plan.amount){
+          failedSubscriptionReasons.push('insufficient balance');
+        } else if (block.timestamp > subscription.nextPayment){
+          failedSubscriptionReasons.push('payment attempted too early');
+        } else if (token.allowance(msg.sender, address(this))){
+          failedSubscriptionReasons.push('insufficient allowance');
+        } else if (!subscription.isActive){
+          failedSubscriptionReasons.push('subscription is not active');
+        } else if (!plan.isActive){
+          failedSubscriptionReasons.push('plan is not active');
+        }
+        failedSubscriptionIDs.push(planIds[i]);
+      }
+      else {
+        successSubscriptionIDs.push(planIds[i]);
+        token.transferFrom(subscription.fanAddress, address(this), plan.amount);
+        token.transfer(subscription.fanAddress, plan.amount);
+        subscription.nextPayment = subscription.nextPayment + plan.frequency;
+      }
+    }
+    return(successSubscriptionIDs, failedSubscriptionIDs, failedSubscriptionReasons);
   }
 }
