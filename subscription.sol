@@ -7,6 +7,7 @@ contract Payment {
   mapping(address => bool) private admins;
   address[] private adminsList;
   address private tokenAddress;
+  uint private minMultiplier = 12;
   
   function constuctor () public {
     adminsList.push(msg.sender);
@@ -37,9 +38,9 @@ contract Payment {
     tokenAddress = _address;
   }
   
-  // This contract is meant to facilitate subscriptions on the VOYR platform using VOYRME tokens
-  // This contract assumes there is an external database keeping track of the subscription IDs
-  // This contract REQUIRES that the subscriber pre-approve the allowed amount prior to creating the subscription
+  // This contract is meant to facilitate subscriptions
+  // This contract assumes there is an external database keeping track of the subscription and plan IDs
+  // This contract REQUIRES that the UI initiate the fan to pre-approve the allowed amount prior to creating the subscription
 
   struct Plan {
     address receiverAddress;
@@ -64,6 +65,14 @@ contract Payment {
   mapping(address => mapping(uint => Subscription)) public subscriptions;
   mapping(uint => uint[]) private planSubscriptions;  // planId => subscriptions
 
+  function getMinMultiplier() external view adminOnly returns(uint minMultiplier){
+    return(minMultiplier);
+  }
+
+  function setMinMultiplier(uint _minMultiplier) external adminOnly {
+    minMultiplier = _minMultiplier;
+  }
+  
   function getPlanSubscriptions(planId) external view adminOnly returns(uint[] subscriptions){
     return planSubscriptions[planId];
   }
@@ -131,7 +140,7 @@ contract Payment {
     Plan storage plan = plans[planId];
     IERC20 token = IERC20(tokenAddress);
     require(!plan.isActive, 'this plan is not active');
-    require(token.allowance(msg.sender,address(this)) > (plan.amount * 12), "pre-approval required");  // UI needs to pre-approve for amount * 12
+    require(token.allowance(msg.sender,address(this)) > (plan.amount * minMultiplier), "pre-approval required");  // UI needs to pre-approve for multiple months
     require(token.balanceOf(msg.sender) > plan.amount, "insufficient balance");
     subscriptions[msg.sender][planId] = Subscription(
       msg.sender,
